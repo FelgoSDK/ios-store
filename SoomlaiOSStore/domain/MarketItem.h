@@ -32,6 +32,7 @@
 
 @property (nonatomic, retain) NSString*         productId;
 @property (nonatomic)         double            price;
+@property (nonatomic)         BOOL              isSubscription;
 @property (nonatomic, retain) NSString          *marketPriceAndCurrency;
 @property (nonatomic, retain) NSString          *marketTitle;
 @property (nonatomic, retain) NSString          *marketDescription;
@@ -45,7 +46,7 @@
  @param oConsumable The type of this `MarketItem` item in the App Store.
  @param oPrice The actual $$ cost of this `MarketItem` item in the App Store.
  */
-- (id)initWithProductId:(NSString*)oProductId andPrice:(double)oPrice;
+- (id)initWithProductId:(NSString*)oProductId andPrice:(double)oPrice andIsSubscription:(BOOL)isSubscription;
 
 /**
  Constructor

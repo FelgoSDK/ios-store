@@ -27,9 +27,9 @@
 
 static NSString* TAG = @"SOOMLA PurchaseWithMarket";
 
-- (id)initWithProductId:(NSString*)oProductId andPrice:(double)oPrice {
+- (id)initWithProductId:(NSString*)oProductId andPrice:(double)oPrice andIsSubscription:(BOOL)isSubscription {
     if (self = [super init]) {
-        self.marketItem = [[MarketItem alloc] initWithProductId:oProductId andPrice:oPrice];
+        self.marketItem = [[MarketItem alloc] initWithProductId:oProductId andPrice:oPrice andIsSubscription:isSubscription];
     }
     return self;
 }
@@ -39,6 +39,10 @@ static NSString* TAG = @"SOOMLA PurchaseWithMarket";
         self.marketItem = oMarketItem;
     }
     return self;
+}
+
+- (BOOL)isSubscription {
+  return self.marketItem ? self.marketItem.isSubscription : NO;
 }
 
 /*

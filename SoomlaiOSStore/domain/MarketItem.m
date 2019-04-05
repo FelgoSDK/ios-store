@@ -21,7 +21,7 @@
 
 @implementation MarketItem
 
-@synthesize price=_price, productId, marketPriceAndCurrency, marketTitle, marketDescription, marketCurrencyCode, marketPriceMicros;
+@synthesize price=_price, isSubscription, productId, marketPriceAndCurrency, marketTitle, marketDescription, marketCurrencyCode, marketPriceMicros;
 
 - (void)setPrice:(double)newPrice {
     _price = (round(newPrice*100)) / 100.0;
@@ -31,11 +31,12 @@
     return _price;
 }
 
-- (id)initWithProductId:(NSString*)oProductId andPrice:(double)oPrice{
+- (id)initWithProductId:(NSString*)oProductId andPrice:(double)oPrice andIsSubscription:(BOOL)isSubscription {
     self = [super init];
     if (self){
         self.productId = oProductId;
         self.price = oPrice;
+        self.isSubscription = isSubscription;
     }
     
     return self;
@@ -50,6 +51,7 @@
             self.productId = [dict objectForKey:JSON_MARKETITEM_PRODUCT_ID];
         }
         self.price = [[dict valueForKey:JSON_MARKETITEM_PRICE] doubleValue];
+        self.isSubscription = [[dict valueForKey:JSON_MARKETITEM_IS_SUBSCRIPTION] boolValue];
         
         self.marketPriceAndCurrency = [dict objectForKey:JSON_MARKETITEM_MARKETPRICE];
         self.marketTitle = [dict objectForKey:JSON_MARKETITEM_MARKETTITLE];
@@ -66,6 +68,7 @@
              SOOM_CLASSNAME : [SoomlaUtils getClassName:self],
              JSON_MARKETITEM_IOS_ID: self.productId,
              JSON_MARKETITEM_PRICE: [NSNumber numberWithDouble:self.price],
+             JSON_MARKETITEM_IS_SUBSCRIPTION: [NSNumber numberWithBool:self.isSubscription],
              JSON_MARKETITEM_MARKETPRICE: (self.marketPriceAndCurrency ? self.marketPriceAndCurrency : @""),
              JSON_MARKETITEM_MARKETTITLE: (self.marketTitle ? self.marketTitle : @""),
              JSON_MARKETITEM_MARKETDESC: (self.marketDescription ? self.marketDescription : @""),

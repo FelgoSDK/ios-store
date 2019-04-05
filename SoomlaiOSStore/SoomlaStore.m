@@ -34,6 +34,8 @@
 
 #import "SoomlaVerification.h"
 
+#import "VerifyStoreReceipt.h"
+
 #define SOOMLA_STORE_VERSION @"3.6.22"
 
 @interface SoomlaStore (){
@@ -78,11 +80,76 @@ static NSString* TAG = @"SOOMLA SoomlaStore";
     [self loadBillingService];
 
     [self refreshMarketItemsDetails];
+  
+    [self resetSubscriptions];
+    [self verifySubscriptions];
 
     self.initialized = YES;
     [StoreEventHandling postSoomlaStoreInitialized];
 
     return YES;
+}
+
+- (void)requestDidFinish:(SKRequest *)request {
+  NSLog(@"App store receipt request finished");
+  [self verifySubscriptions];
+}
+
+- (void)resetSubscriptions {
+  // set all subscriptions' balances to 0 on app start
+  // the actual balance is set in verifySubscriptions if they are still active
+  for(NSString *pId in [[StoreInfo getInstance] allProductIds]) {
+    PurchasableVirtualItem *pvi = [[StoreInfo getInstance] purchasableItemWithProductId:pId];
+    if(pvi && [pvi.purchaseType isKindOfClass:[PurchaseWithMarket class]] &&
+       ((PurchaseWithMarket *)pvi.purchaseType).isSubscription) {
+      [pvi resetBalance:0];
+    }
+  }
+}
+
+- (void)verifySubscriptions {
+  // perform local receipt verification to check for renewed or expired subscriptions
+  NSURL *receiptPath = [[NSBundle mainBundle] appStoreReceiptURL];
+  NSString *path = receiptPath.path;
+  
+  NSLog(@"Verify app store receipt at path: %@", path);
+  if(![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+    NSLog(@"Receipt does not exist yet, requesting...");
+    
+    SKReceiptRefreshRequest *receiptRequest = [[SKReceiptRefreshRequest alloc] initWithReceiptProperties:nil];
+    receiptRequest.delegate = self;
+    [receiptRequest start];
+  } else if([VerifyStoreReceipt verifyReceiptAtPath:path]) {
+    NSLog(@"App has valid receipt. Check for IAP receipts now.");
+    
+    NSDateFormatter *isoDate = [NSDateFormatter new];
+    isoDate.dateFormat = @"yyyy-MM-dd'T'HH:mm:ssZ";
+    isoDate.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
+    
+    NSArray *iapDataArray = [VerifyStoreReceipt obtainInAppPurchases:path];
+    for(NSDictionary *iapData in iapDataArray) {
+      PurchasableVirtualItem *pvi = [[StoreInfo getInstance] purchasableItemWithProductId:iapData[@"ProductIdentifier"]];
+      
+      if(iapData[@"SubExpDate"] && pvi &&
+         [pvi.purchaseType isKindOfClass:[PurchaseWithMarket class]] &&
+         ((PurchaseWithMarket *)pvi.purchaseType).isSubscription) {
+        // found receipt for a subscription
+        NSLog(@"Receipt for subscription item \"%@\" found: %@", pvi.itemId, iapData);
+        
+        NSDate *expireDate = [isoDate dateFromString:iapData[@"SubExpDate"]];
+        // sub expire date is after current date
+        // NOTE: checking local date is not optimal as users can just change the date in settings
+        NSDate *now = [NSDate date];
+        NSLog(@"Subscription expire date: %@, current date: %@", expireDate, now);
+        if([expireDate compare:now] == NSOrderedDescending) {
+          NSLog(@"give subscriptions");
+          [pvi resetBalance:1];
+        }
+      }
+    }
+  } else {
+    NSLog(@"Appstore receipt is invalid.");
+  }
 }
 
 - (void)loadBillingService {
@@ -135,9 +202,12 @@ static NSString* developerPayload = NULL;
 }
 
 - (void)restoreTransactions {
-
-    LogDebug(TAG, @"Sending restore transaction request");
+    [self resetSubscriptions];
+    [self verifySubscriptions];
+  
+    NSLog(@"Sending restore transaction request");
     if ([SKPaymentQueue canMakePayments]) {
+        NSLog(@"restore transactions now");
         [[SKPaymentQueue defaultQueue] restoreCompletedTransactions];
     }
 
@@ -145,6 +215,7 @@ static NSString* developerPayload = NULL;
 }
 
 - (BOOL)transactionsAlreadyRestored {
+  NSLog(@"already restored? %d", [[NSUserDefaults standardUserDefaults] boolForKey:@"RESTORED"]);
     
     // Defaults to NO
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"RESTORED"];
@@ -155,23 +226,31 @@ static NSString* developerPayload = NULL;
 
 - (void)paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray *)transactions
 {
+    NSLog(@"updatedTransactions");
     for (SKPaymentTransaction *transaction in transactions)
     {
         switch (transaction.transactionState)
         {
             case SKPaymentTransactionStatePurchased:
+                NSLog(@"completed transaction: %@", transaction);
                 [self completeTransaction:transaction];
                 break;
             case SKPaymentTransactionStateFailed:
+                NSLog(@"failed transaction: %@", transaction);
                 [self failedTransaction:transaction];
                 break;
             case SKPaymentTransactionStateRestored:
+                NSLog(@"Restored transaction: %@", transaction);
+            
                 [self restoreTransaction:transaction];
+                break;
             case SKPaymentTransactionStateDeferred:
+                NSLog(@"deferred transaction: %@", transaction);
                 // Do not block your UI. Allow the user to continue using your app.
                 [self deferTransaction:transaction];
                 break;
             default:
+                NSLog(@"unknown transaction state %d: %@", (int)transaction.transactionState, transaction);
                 break;
         }
     }
@@ -237,6 +316,7 @@ static NSString* developerPayload = NULL;
     }
 
     NSDateFormatter* dateFormatter = [[NSDateFormatter alloc] init];
+    dateFormatter.dateStyle = NSDateFormatterShortStyle;
     NSString* transactionDateStr = [dateFormatter stringFromDate:transaction.transactionDate];
     
     NSString* originalDateStr = transaction.originalTransaction ? [dateFormatter stringFromDate:transaction.originalTransaction.transactionDate] : transactionDateStr;
@@ -342,6 +422,13 @@ static NSString* developerPayload = NULL;
 
 - (void) restoreTransaction: (SKPaymentTransaction *)transaction
 {
+    PurchasableVirtualItem* pvi = [[StoreInfo getInstance] purchasableItemWithProductId:transaction.payment.productIdentifier];
+    if([pvi.purchaseType isKindOfClass:[PurchaseWithMarket class]] &&
+       ((PurchaseWithMarket *)pvi.purchaseType).isSubscription) {
+        LogDebug(TAG, @"Not restoring subscription transaction");
+        return;
+    }
+  
     LogDebug(TAG, ([NSString stringWithFormat:@"Restore transaction for product: %@", transaction.payment.productIdentifier]));
     [self givePurchasedItem:transaction isRestored:YES];
 }
@@ -386,6 +473,8 @@ static NSString* developerPayload = NULL;
 }
 
 - (void)paymentQueueRestoreCompletedTransactionsFinished:(SKPaymentQueue *)queue {
+    NSLog(@"did restore");
+  
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
     [defaults setBool:YES forKey:@"RESTORED"];
     [defaults synchronize];
@@ -394,6 +483,8 @@ static NSString* developerPayload = NULL;
 }
 
 - (void)paymentQueue:(SKPaymentQueue *)queue restoreCompletedTransactionsFailedWithError:(NSError *)error {
+    NSLog(@"error restoring");
+  
     [StoreEventHandling postRestoreTransactionsFinished:NO];
 }
 

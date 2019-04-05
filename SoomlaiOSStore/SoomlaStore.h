@@ -28,7 +28,7 @@
 
  This is the only class you need to initialize in order to use the SOOMLA SDK.
  */
-@interface SoomlaStore : NSObject <SKProductsRequestDelegate, SKPaymentTransactionObserver>{
+@interface SoomlaStore : NSObject <SKProductsRequestDelegate, SKPaymentTransactionObserver, SKRequestDelegate> {
     @private
     BOOL initialized;
 }
