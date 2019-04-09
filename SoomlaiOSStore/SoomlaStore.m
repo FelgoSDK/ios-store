@@ -114,13 +114,13 @@ static NSString* TAG = @"SOOMLA SoomlaStore";
   
   NSLog(@"Verify app store receipt at path: %@", path);
   if(![[NSFileManager defaultManager] fileExistsAtPath:path]) {
-    NSLog(@"Receipt does not exist yet, requesting...");
-    
+    LogDebug(TAG, @"Receipt does not exist yet, requesting...");
+
     SKReceiptRefreshRequest *receiptRequest = [[SKReceiptRefreshRequest alloc] initWithReceiptProperties:nil];
     receiptRequest.delegate = self;
     [receiptRequest start];
   } else if([VerifyStoreReceipt verifyReceiptAtPath:path]) {
-    NSLog(@"App has valid receipt. Check for IAP receipts now.");
+    LogDebug(TAG, @"App has valid receipt. Check for IAP receipts now.");
     
     NSDateFormatter *isoDate = [NSDateFormatter new];
     isoDate.dateFormat = @"yyyy-MM-dd'T'HH:mm:ssZ";
@@ -128,27 +128,40 @@ static NSString* TAG = @"SOOMLA SoomlaStore";
     
     NSArray *iapDataArray = [VerifyStoreReceipt obtainInAppPurchases:path];
     for(NSDictionary *iapData in iapDataArray) {
-      PurchasableVirtualItem *pvi = [[StoreInfo getInstance] purchasableItemWithProductId:iapData[@"ProductIdentifier"]];
+      NSString *itemId = iapData[@"ProductIdentifier"];
+      PurchasableVirtualItem *pvi;
+      @try {
+        // purchasableItemWithProductId: throws exception if the item does not exist
+        // this happens if the user has previously bought an IAP (non-consumable or subscription)
+        // and the developer removed/changed product IDs afterwards
+        pvi = [[StoreInfo getInstance] purchasableItemWithProductId:itemId];
+      } @catch(VirtualItemNotFoundException *ex) {
+        LogError(TAG, ([NSString stringWithFormat:@"Couldn't find the VirtualCurrencyPack OR MarketItem with productId: %@ from the IAP receipt"
+                        @". It's unexpected so an unexpected error is being emitted.", itemId]));
+        
+        [StoreEventHandling postUnexpectedError:ERR_GENERAL forObject:self];
+        continue;
+      }
       
       if(iapData[@"SubExpDate"] && pvi &&
          [pvi.purchaseType isKindOfClass:[PurchaseWithMarket class]] &&
          ((PurchaseWithMarket *)pvi.purchaseType).isSubscription) {
         // found receipt for a subscription
-        NSLog(@"Receipt for subscription item \"%@\" found: %@", pvi.itemId, iapData);
+        NSLog(TAG, @"Receipt for subscription item \"%@\" found: %@", pvi.itemId, iapData);
         
         NSDate *expireDate = [isoDate dateFromString:iapData[@"SubExpDate"]];
         // sub expire date is after current date
         // NOTE: checking local date is not optimal as users can just change the date in settings
         NSDate *now = [NSDate date];
-        NSLog(@"Subscription expire date: %@, current date: %@", expireDate, now);
+        NSLog(TAG, @"Subscription expire date: %@, current date: %@", expireDate, now);
         if([expireDate compare:now] == NSOrderedDescending) {
-          NSLog(@"give subscriptions");
+          LogDebug(TAG, @"give subscriptions");
           [pvi resetBalance:1];
         }
       }
     }
   } else {
-    NSLog(@"Appstore receipt is invalid.");
+    LogError(TAG, @"Appstore receipt is invalid. Cannot check for active subscriptions.");
   }
 }
 
@@ -422,11 +435,19 @@ static NSString* developerPayload = NULL;
 
 - (void) restoreTransaction: (SKPaymentTransaction *)transaction
 {
-    PurchasableVirtualItem* pvi = [[StoreInfo getInstance] purchasableItemWithProductId:transaction.payment.productIdentifier];
-    if([pvi.purchaseType isKindOfClass:[PurchaseWithMarket class]] &&
-       ((PurchaseWithMarket *)pvi.purchaseType).isSubscription) {
+    @try {
+      PurchasableVirtualItem* pvi = [[StoreInfo getInstance] purchasableItemWithProductId:transaction.payment.productIdentifier];
+      if([pvi.purchaseType isKindOfClass:[PurchaseWithMarket class]] &&
+         ((PurchaseWithMarket *)pvi.purchaseType).isSubscription) {
         LogDebug(TAG, @"Not restoring subscription transaction");
         return;
+      }
+    }
+    @catch (VirtualItemNotFoundException* e) {
+      LogError(TAG, ([NSString stringWithFormat:@"Couldn't find the RESTORED VirtualCurrencyPack OR MarketItem with productId: %@"
+                      @". It's unexpected so an unexpected error is being emitted.", transaction.payment.productIdentifier]));
+      
+      [StoreEventHandling postUnexpectedError:ERR_GENERAL forObject:self];
     }
   
     LogDebug(TAG, ([NSString stringWithFormat:@"Restore transaction for product: %@", transaction.payment.productIdentifier]));
