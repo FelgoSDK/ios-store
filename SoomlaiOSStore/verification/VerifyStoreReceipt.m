@@ -30,6 +30,8 @@
 
 #import "VerifyStoreReceipt.h"
 
+#import "SoomlaUtils.h"
+
 // link with Foundation.framework, Security.framework, libssl and libCrypto (via -lssl -lcrypto in Other Linker Flags)
 
 #import <Security/Security.h>
@@ -39,6 +41,8 @@
 #include <openssl/sha.h>
 #include <openssl/x509.h>
 #include <openssl/err.h>
+
+static NSString* TAG = @"SOOMLA VerifyStoreReceipt";
 
 #define VRCFRelease(object) if(object) CFRelease(object)
 
@@ -287,6 +291,7 @@ NSArray *parseInAppPurchasesData(NSData *inappData) {
   const char * path = [[receiptPath stringByStandardizingPath] fileSystemRepresentation];
   FILE *fp = fopen(path, "rb");
   if (fp == NULL) {
+    LogError(TAG, ([NSString stringWithFormat:@"Can't fopen at path %s", path]));
     return nil;
   }
   
@@ -295,15 +300,18 @@ NSArray *parseInAppPurchasesData(NSData *inappData) {
   
   // Check if the receipt file was invalid (otherwise we go crashing and burning)
   if (p7 == NULL) {
+    LogError(TAG, @"p7 == NULL");
     return nil;
   }
   
   if (!PKCS7_type_is_signed(p7)) {
+    LogError(TAG, @"!PKCS7_type_is_signed(p7)");
     PKCS7_free(p7);
     return nil;
   }
   
   if (!PKCS7_type_is_data(p7->d.sign->contents)) {
+    LogError(TAG, @"!PKCS7_type_is_data(p7->d.sign->contents)");
     PKCS7_free(p7);
     return nil;
   }
@@ -331,6 +339,11 @@ NSArray *parseInAppPurchasesData(NSData *inappData) {
   EVP_cleanup();
   
   if (verifyReturnValue != 1) {
+    char errString[512];
+    unsigned long errCode = ERR_get_error();
+    ERR_error_string(errCode, errString);
+    LogError(TAG, ([NSString stringWithFormat:@"verifyReturnValue != 1: %d, error code: %ld, error string: %s",
+                    verifyReturnValue, errCode, errString]));
     PKCS7_free(p7);
     return nil;
   }
@@ -345,6 +358,7 @@ NSArray *parseInAppPurchasesData(NSData *inappData) {
   
   ASN1_get_object(&p, &length, &type, &xclass, end - p);
   if (type != V_ASN1_SET) {
+    LogError(TAG, @"type != V_ASN1_SET");
     PKCS7_free(p7);
     return nil;
   }

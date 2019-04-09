@@ -91,7 +91,7 @@ static NSString* TAG = @"SOOMLA SoomlaStore";
 }
 
 - (void)requestDidFinish:(SKRequest *)request {
-  NSLog(@"App store receipt request finished");
+  LogDebug(TAG, @"App store receipt request finished");
   [self verifySubscriptions];
 }
 
@@ -112,7 +112,7 @@ static NSString* TAG = @"SOOMLA SoomlaStore";
   NSURL *receiptPath = [[NSBundle mainBundle] appStoreReceiptURL];
   NSString *path = receiptPath.path;
   
-  NSLog(@"Verify app store receipt at path: %@", path);
+  LogDebug(TAG, ([NSString stringWithFormat:@"Verify app store receipt at path: %@", path]));
   if(![[NSFileManager defaultManager] fileExistsAtPath:path]) {
     LogDebug(TAG, @"Receipt does not exist yet, requesting...");
 
@@ -218,9 +218,7 @@ static NSString* developerPayload = NULL;
     [self resetSubscriptions];
     [self verifySubscriptions];
   
-    NSLog(@"Sending restore transaction request");
     if ([SKPaymentQueue canMakePayments]) {
-        NSLog(@"restore transactions now");
         [[SKPaymentQueue defaultQueue] restoreCompletedTransactions];
     }
 
@@ -228,8 +226,6 @@ static NSString* developerPayload = NULL;
 }
 
 - (BOOL)transactionsAlreadyRestored {
-  NSLog(@"already restored? %d", [[NSUserDefaults standardUserDefaults] boolForKey:@"RESTORED"]);
-    
     // Defaults to NO
     return [[NSUserDefaults standardUserDefaults] boolForKey:@"RESTORED"];
 }
@@ -239,31 +235,22 @@ static NSString* developerPayload = NULL;
 
 - (void)paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray *)transactions
 {
-    NSLog(@"updatedTransactions");
     for (SKPaymentTransaction *transaction in transactions)
     {
         switch (transaction.transactionState)
         {
             case SKPaymentTransactionStatePurchased:
-                NSLog(@"completed transaction: %@", transaction);
                 [self completeTransaction:transaction];
                 break;
             case SKPaymentTransactionStateFailed:
-                NSLog(@"failed transaction: %@", transaction);
                 [self failedTransaction:transaction];
                 break;
             case SKPaymentTransactionStateRestored:
-                NSLog(@"Restored transaction: %@", transaction);
-            
                 [self restoreTransaction:transaction];
                 break;
             case SKPaymentTransactionStateDeferred:
-                NSLog(@"deferred transaction: %@", transaction);
                 // Do not block your UI. Allow the user to continue using your app.
                 [self deferTransaction:transaction];
-                break;
-            default:
-                NSLog(@"unknown transaction state %d: %@", (int)transaction.transactionState, transaction);
                 break;
         }
     }
@@ -494,8 +481,6 @@ static NSString* developerPayload = NULL;
 }
 
 - (void)paymentQueueRestoreCompletedTransactionsFinished:(SKPaymentQueue *)queue {
-    NSLog(@"did restore");
-  
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
     [defaults setBool:YES forKey:@"RESTORED"];
     [defaults synchronize];
@@ -504,8 +489,6 @@ static NSString* developerPayload = NULL;
 }
 
 - (void)paymentQueue:(SKPaymentQueue *)queue restoreCompletedTransactionsFailedWithError:(NSError *)error {
-    NSLog(@"error restoring");
-  
     [StoreEventHandling postRestoreTransactionsFinished:NO];
 }
 
