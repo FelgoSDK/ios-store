@@ -143,21 +143,34 @@ static NSString* TAG = @"SOOMLA SoomlaStore";
         continue;
       }
       
-      if(iapData[@"SubExpDate"] && pvi &&
-         [pvi.purchaseType isKindOfClass:[PurchaseWithMarket class]] &&
-         ((PurchaseWithMarket *)pvi.purchaseType).isSubscription) {
+      if(pvi == nil || ![pvi.purchaseType isKindOfClass:[PurchaseWithMarket class]]) {
+        continue;
+      }
+      
+      BOOL isPurchased = NO;
+      if(!((PurchaseWithMarket *)pvi.purchaseType).isSubscription) {
+        LogDebug(TAG, ([NSString stringWithFormat:@"Receipt for non-consumable item \"%@\" found, setting purchased to true.", pvi.itemId]))
+        isPurchased = YES;
+      } else if(iapData[@"SubExpDate"]) {
         // found receipt for a subscription
-        NSLog(TAG, @"Receipt for subscription item \"%@\" found: %@", pvi.itemId, iapData);
+        LogDebug(TAG, ([NSString stringWithFormat:@"Receipt for subscription item \"%@\" found: %@", pvi.itemId, iapData]));
         
         NSDate *expireDate = [isoDate dateFromString:iapData[@"SubExpDate"]];
         // sub expire date is after current date
         // NOTE: checking local date is not optimal as users can just change the date in settings
         NSDate *now = [NSDate date];
-        NSLog(TAG, @"Subscription expire date: %@, current date: %@", expireDate, now);
+        LogDebug(TAG, ([NSString stringWithFormat:@"Subscription expire date: %@, current date: %@", expireDate, now]));
         if([expireDate compare:now] == NSOrderedDescending) {
-          LogDebug(TAG, @"give subscriptions");
-          [pvi resetBalance:1];
+          LogDebug(TAG, @"Subscription still active, setting purchased to true.");
+          isPurchased = YES;
         }
+      }
+      
+      if(isPurchased) {
+        [pvi resetBalance:1];
+      } else {
+        LogDebug(TAG, @"Subscription not active, setting purchased to false.");
+        [pvi resetBalance:0];
       }
     }
   } else {
