@@ -80,8 +80,7 @@ static NSString* TAG = @"SOOMLA SoomlaStore";
     [self loadBillingService];
 
     [self refreshMarketItemsDetails];
-  
-    [self resetSubscriptions];
+
     [self verifySubscriptions];
 
     self.initialized = YES;
@@ -93,18 +92,6 @@ static NSString* TAG = @"SOOMLA SoomlaStore";
 - (void)requestDidFinish:(SKRequest *)request {
   LogDebug(TAG, @"App store receipt request finished");
   [self verifySubscriptions];
-}
-
-- (void)resetSubscriptions {
-  // set all subscriptions' balances to 0 on app start
-  // the actual balance is set in verifySubscriptions if they are still active
-  for(NSString *pId in [[StoreInfo getInstance] allProductIds]) {
-    PurchasableVirtualItem *pvi = [[StoreInfo getInstance] purchasableItemWithProductId:pId];
-    if(pvi && [pvi.purchaseType isKindOfClass:[PurchaseWithMarket class]] &&
-       ((PurchaseWithMarket *)pvi.purchaseType).isSubscription) {
-      [pvi resetBalance:0];
-    }
-  }
 }
 
 - (void)verifySubscriptions {
@@ -228,7 +215,6 @@ static NSString* developerPayload = NULL;
 }
 
 - (void)restoreTransactions {
-    [self resetSubscriptions];
     [self verifySubscriptions];
   
     if ([SKPaymentQueue canMakePayments]) {
