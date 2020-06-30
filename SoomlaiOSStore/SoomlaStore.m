@@ -113,6 +113,7 @@ static NSString* TAG = @"SOOMLA SoomlaStore";
     isoDate.dateFormat = @"yyyy-MM-dd'T'HH:mm:ssZ";
     isoDate.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
     
+    NSMutableDictionary *latestExpiryDatePerProduct = [NSMutableDictionary new];
     NSArray *iapDataArray = [VerifyStoreReceipt obtainInAppPurchases:path];
     for(NSDictionary *iapData in iapDataArray) {
       NSString *itemId = iapData[@"ProductIdentifier"];
@@ -134,26 +135,50 @@ static NSString* TAG = @"SOOMLA SoomlaStore";
         continue;
       }
       
-      BOOL isPurchased = NO;
       if(!((PurchaseWithMarket *)pvi.purchaseType).isSubscription) {
-        LogDebug(TAG, ([NSString stringWithFormat:@"Receipt for non-consumable item \"%@\" found, setting purchased to true.", pvi.itemId]))
-        isPurchased = YES;
+        LogDebug(TAG, ([NSString stringWithFormat:@"Receipt for non-consumable item \"%@\" found, setting purchased to true.", pvi.itemId]));
+          
+        [pvi resetBalance:1];
       } else if(iapData[@"SubExpDate"]) {
         // found receipt for a subscription
         LogDebug(TAG, ([NSString stringWithFormat:@"Receipt for subscription item \"%@\" found: %@", pvi.itemId, iapData]));
         
         NSDate *expireDate = [isoDate dateFromString:iapData[@"SubExpDate"]];
-        // sub expire date is after current date
-        // NOTE: checking local date is not optimal as users can just change the date in settings
-        NSDate *now = [NSDate date];
-        LogDebug(TAG, ([NSString stringWithFormat:@"Subscription expire date: %@, current date: %@", expireDate, now]));
-        if([expireDate compare:now] == NSOrderedDescending) {
-          LogDebug(TAG, @"Subscription still active, setting purchased to true.");
-          isPurchased = YES;
+        NSDate *latest = [latestExpiryDatePerProduct objectForKey:itemId];
+          
+        if(latest == nil || [expireDate compare:latest] == NSOrderedDescending) {
+          [latestExpiryDatePerProduct setValue:expireDate forKey:itemId];
         }
       }
+    }
       
-      if(isPurchased) {
+    for(NSString *itemId in latestExpiryDatePerProduct) {
+      PurchasableVirtualItem *pvi;
+      @try {
+        // purchasableItemWithProductId: throws exception if the item does not exist
+        // this happens if the user has previously bought an IAP (non-consumable or subscription)
+        // and the developer removed/changed product IDs afterwards
+        pvi = [[StoreInfo getInstance] purchasableItemWithProductId:itemId];
+      } @catch(VirtualItemNotFoundException *ex) {
+        LogError(TAG, ([NSString stringWithFormat:@"Couldn't find the VirtualCurrencyPack OR MarketItem with productId: %@ from the IAP receipt"
+                        @". It's unexpected so an unexpected error is being emitted.", itemId]));
+          
+        [StoreEventHandling postUnexpectedError:ERR_GENERAL forObject:self];
+        continue;
+      }
+        
+      if(pvi == nil || ![pvi.purchaseType isKindOfClass:[PurchaseWithMarket class]]) {
+        continue;
+      }
+
+      // sub expire date is after current date
+      // NOTE: checking local date is not optimal as users can just change the date in settings
+      NSDate *expireDate = [latestExpiryDatePerProduct objectForKey:itemId];
+      NSDate *now = [NSDate date];
+        
+      LogDebug(TAG, ([NSString stringWithFormat:@"Subscription expire date for item %@: %@, current date: %@", itemId, expireDate, now]));
+      if([expireDate compare:now] == NSOrderedDescending) {
+        LogDebug(TAG, @"Subscription still active, setting purchased to true.");
         [pvi resetBalance:1];
       } else {
         LogDebug(TAG, @"Subscription not active, setting purchased to false.");
